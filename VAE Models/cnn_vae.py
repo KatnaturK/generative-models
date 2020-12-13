@@ -8,10 +8,10 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 
 # HYPERPARAMETERS
-NUM_FEATURES = 16
-NUM_EPOCHS = 200
-BATCH_SIZE = 128
-LEARNING_RATE = 0.002
+features = 16
+epochs = 200
+batch_size = 128
+eta = 0.0002
 device = 'cuda'
 
 class VAE(nn.Module):
@@ -26,8 +26,7 @@ class VAE(nn.Module):
     self.conv2_drop = nn.Dropout2d(0.25)
     self.conv3 = nn.Conv2d(128, 256, kernel_size = 3, stride = 2, padding = 1)
     self.conv3_drop = nn.Dropout2d(0.25)
-    self.fc = nn.Linear(12544, NUM_FEATURES*2)
-
+    self.fc = nn.Linear(12544, features*2)
     self.fc1 = nn.Linear(16, 256*7*7)
     self.trans_conv1 = nn.ConvTranspose2d(256, 128, kernel_size = 3, stride = 2, padding = 1, output_padding = 1)
     self.trans_conv2 = nn.ConvTranspose2d(128, 64, kernel_size = 3, stride = 1, padding = 1)
@@ -39,6 +38,16 @@ class VAE(nn.Module):
     eps = torch.randn_like(std)
     sample = mu + (eps * std)
     return sample
+
+  def generate(self, sample):
+    x = self.fc1(sample)
+    x = x.view(-1, 256, 7, 7)
+    x = F.relu(self.trans_conv1(x))
+    x = F.relu(self.trans_conv2(x))
+    x = F.relu(self.trans_conv3(x))
+    x = self.trans_conv4(x)
+    generated = torch.sigmoid(x)
+    return generated
  
   def forward(self, x):
     x = x.view(-1, 1, 28, 28)
@@ -53,7 +62,7 @@ class VAE(nn.Module):
     x = x.view(-1, 12544)
     x = self.fc(x)
 
-    x = x.view(-1, 2, NUM_FEATURES)
+    x = x.view(-1, 2, features)
 
     mu = x[:, 0, :]
     log_var = x[:, 1, :]
@@ -69,15 +78,6 @@ class VAE(nn.Module):
     reconstruction = torch.sigmoid(x)
     return reconstruction, mu, log_var
 
-  def generate(self, sample):
-    x = self.fc1(sample)
-    x = x.view(-1, 256, 7, 7)
-    x = F.relu(self.trans_conv1(x))
-    x = F.relu(self.trans_conv2(x))
-    x = F.relu(self.trans_conv3(x))
-    x = self.trans_conv4(x)
-    generated = torch.sigmoid(x)
-    return generated
 
 model = VAE()
 print(model)
@@ -104,23 +104,23 @@ val_data = datasets.MNIST(
 
 train_loader = torch.utils.data.DataLoader(
   train_data,
-  batch_size=BATCH_SIZE,
+  batch_size=batch_size,
   shuffle=True
 )
 val_loader = torch.utils.data.DataLoader(
   val_data,
-  batch_size=BATCH_SIZE,
+  batch_size=batch_size,
   shuffle=False
 )
 
-normal_samples = torch.randn(25, NUM_FEATURES).to(device)
+normal_samples = torch.randn(36, features).to(device)
 
 def final_loss(bce_loss, mu, logvar):
   BCE = bce_loss 
   KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
   return BCE + KLD
 
-optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+optimizer = optim.Adam(model.parameters(), lr=eta)
 criterion = nn.BCELoss(reduction='sum')
 
 def fit(model, dataloader):
@@ -155,8 +155,8 @@ def validate(model, dataloader, samples):
 
       if i == int(len(val_data)/dataloader.batch_size) - 1:
         num_rows = 8
-        samples.append(torch.cat((data.view(BATCH_SIZE, 1, 28, 28)[:num_rows], 
-                           reconstruction.view(BATCH_SIZE, 1, 28, 28)[:num_rows])))
+        samples.append(torch.cat((data.view(batch_size, 1, 28, 28)[:num_rows], 
+                           reconstruction.view(batch_size, 1, 28, 28)[:num_rows])))
 
   val_loss = running_loss/len(dataloader.dataset)
   return val_loss
@@ -175,13 +175,13 @@ train_loss = []
 val_loss = []
 samples = []
 
-for epoch in range(NUM_EPOCHS):
+for epoch in range(epochs):
     train_epoch_loss = fit(model, train_loader)
     val_epoch_loss = validate(model, val_loader, samples)
     train_loss.append(train_epoch_loss)
     val_loss.append(val_epoch_loss)
     print('Epoch [{:3d}/{:3d}] | Train loss: {:5.2f} | Val loss: {:5.2f}'.format(
-                    epoch+1, NUM_EPOCHS, train_epoch_loss, val_epoch_loss))
+                    epoch+1, epochs, train_epoch_loss, val_epoch_loss))
     if epoch % 50 == 0:
       model.eval()
       generated_images = model.generate(normal_samples)
